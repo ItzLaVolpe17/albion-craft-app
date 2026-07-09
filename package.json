@@ -1,0 +1,65 @@
+{
+  "name": "albion-craft-app",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Albion Crafting — Windows companion app (Electron shell for albion-craft-site)",
+  "author": "lavolpe",
+  "type": "module",
+  "main": "electron/main.mjs",
+  "scripts": {
+    "electron:dev": "concurrently -k \"npm --prefix ../albion-craft-site run dev\" \"wait-on http://localhost:5173 && VITE_DEV_SERVER_URL=http://localhost:5173 electron .\"",
+    "build-site": "npm --prefix ../albion-craft-site run build && rm -rf dist && cp -R ../albion-craft-site/dist ./dist",
+    "electron:preview": "npm run build-site && electron .",
+    "build-icon": "electron scripts/rasterize-logo.mjs && node scripts/build-icon.mjs",
+    "dist:win": "npm run build-site && electron-builder --win",
+    "release": "node scripts/release.mjs"
+  },
+  "build": {
+    "appId": "com.lavolpe.albioncrafting",
+    "productName": "Albion Crafting",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "dist/**",
+      "electron/**"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": true,
+      "deleteAppDataOnUninstall": false
+    }
+  },
+  "dependencies": {
+    "electron-serve": "^3.0.1"
+  },
+  "devDependencies": {
+    "concurrently": "^10.0.3",
+    "electron": "^43.1.0",
+    "electron-builder": "^26.15.3",
+    "jimp": "^1.6.1",
+    "png-to-ico": "^3.0.2",
+    "wait-on": "^9.0.10"
+  },
+  "allowScripts": {
+    "electron@43.1.0": true,
+    "electron-winstaller@5.4.0": true
+  }
+}
