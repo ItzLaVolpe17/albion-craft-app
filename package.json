@@ -1,7 +1,7 @@
 {
   "name": "albion-craft-app",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Albion Crafting — Windows companion app (Electron shell for albion-craft-site)",
   "author": "lavolpe",
   "type": "module",
@@ -12,6 +12,7 @@
     "electron:preview": "npm run build-site && electron .",
     "build-icon": "electron scripts/rasterize-logo.mjs && node scripts/build-icon.mjs",
     "dist:win": "npm run build-site && electron-builder --win",
+    "publish:win": "npm run build-site && electron-builder --win --publish always",
     "release": "node scripts/release.mjs"
   },
   "build": {
@@ -24,6 +25,14 @@
     "files": [
       "dist/**",
       "electron/**"
+    ],
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "ItzLaVolpe17",
+        "repo": "albion-craft-app",
+        "releaseType": "release"
+      }
     ],
     "win": {
       "target": [
@@ -48,7 +57,8 @@
     }
   },
   "dependencies": {
-    "electron-serve": "^3.0.1"
+    "electron-serve": "^3.0.1",
+    "electron-updater": "^6.8.9"
   },
   "devDependencies": {
     "concurrently": "^10.0.3",
