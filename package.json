@@ -1,7 +1,7 @@
 {
   "name": "albion-craft-app",
   "private": true,
-  "version": "1.14.0",
+  "version": "1.14.1",
   "description": "Albion Crafting — Windows companion app (Electron shell for albion-craft-site)",
   "author": "lavolpe",
   "type": "module",
