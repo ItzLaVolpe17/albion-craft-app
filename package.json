@@ -11,8 +11,10 @@
     "build-site": "npm --prefix ../albion-craft-site run build && rm -rf dist && cp -R ../albion-craft-site/dist ./dist",
     "electron:preview": "npm run build-site && electron .",
     "build-icon": "electron scripts/rasterize-logo.mjs && node scripts/build-icon.mjs",
-    "dist:win": "npm run build-site && electron-builder --win",
-    "publish:win": "npm run build-site && electron-builder --win --publish always",
+    "build-sidecar": "node scripts/build-sidecar.mjs windows",
+    "build-sidecar:mac": "node scripts/build-sidecar.mjs darwin",
+    "dist:win": "npm run build-sidecar && npm run build-site && electron-builder --win",
+    "publish:win": "npm run build-sidecar && npm run build-site && electron-builder --win --publish always",
     "release": "node scripts/release.mjs"
   },
   "build": {
@@ -25,6 +27,12 @@
     "files": [
       "dist/**",
       "electron/**"
+    ],
+    "extraResources": [
+      {
+        "from": "sidecar/bin/albion-sidecar.exe",
+        "to": "sidecar/albion-sidecar.exe"
+      }
     ],
     "publish": [
       {

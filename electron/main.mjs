@@ -2,67 +2,105 @@
  * Albion Crafting — companion app desktop.
  * Una sola finestra standard: nessun overlay, nessun always-on-top e nessuna
  * interazione con il client di gioco (policy SBI: gli overlay sono vietati).
+ *
+ * Aggiornamenti: electron-updater scarica e installa automaticamente le nuove
+ * release da GitHub (repo pubblica). Controlla a ogni avvio e su richiesta dai Settings.
  */
-import { app, BrowserWindow, dialog, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
 import serve from 'electron-serve';
+import electronUpdater from 'electron-updater';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { DataClient } from './dataclient.mjs';
 
+const { autoUpdater } = electronUpdater;
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DEV_URL = process.env.VITE_DEV_SERVER_URL;
-
-/**
- * Check aggiornamenti: legge un piccolo manifest pubblicato dal sito
- * (Cloudflare Pages). Aggiorna l'URL dopo il deploy del sito, oppure
- * override con la env APP_VERSION_URL per i test.
- */
-const APP_VERSION_URL =
-  process.env.APP_VERSION_URL ?? 'https://albion-craft-site.pages.dev/app-version.json';
-const UPDATE_CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000;
 
 // In produzione l'app è servita dallo scheme app:// sulla cartella dist,
 // così i fetch relativi (data/recipes.json) e le chiamate HTTPS funzionano.
 const loadApp = DEV_URL ? null : serve({ directory: path.join(__dirname, '..', 'dist') });
 
-function isNewer(remote, local) {
-  const r = String(remote).split('.').map(Number);
-  const l = String(local).split('.').map(Number);
-  for (let i = 0; i < 3; i++) {
-    if ((r[i] || 0) > (l[i] || 0)) return true;
-    if ((r[i] || 0) < (l[i] || 0)) return false;
-  }
-  return false;
+// Scarica da solo l'aggiornamento e lo installa alla chiusura dell'app,
+// così non serve mai reinstallare a mano.
+autoUpdater.autoDownload = true;
+autoUpdater.autoInstallOnAppQuit = true;
+
+let mainWindow = null;
+let downloadedVersion = null;
+let dataClient = null;
+
+/** Inoltra lo stato dell'updater al renderer (sezione Settings del sito). */
+function sendStatus(payload) {
+  mainWindow?.webContents.send('updates:status', payload);
 }
 
-let updatePromptShown = false;
-
-async function checkForUpdates(win) {
-  try {
-    const res = await fetch(APP_VERSION_URL, { cache: 'no-store' });
-    if (!res.ok) return;
-    const manifest = await res.json();
-    if (!manifest?.version || !isNewer(manifest.version, app.getVersion())) return;
-    if (updatePromptShown) return;
-    updatePromptShown = true;
-    console.log(`[update] new version available: ${manifest.version} (current ${app.getVersion()})`);
-
-    const { response } = await dialog.showMessageBox(win, {
+function wireAutoUpdater() {
+  autoUpdater.on('checking-for-update', () => sendStatus({ state: 'checking' }));
+  autoUpdater.on('update-available', (info) =>
+    sendStatus({ state: 'available', version: info?.version }),
+  );
+  autoUpdater.on('update-not-available', () =>
+    sendStatus({ state: 'not-available', version: app.getVersion() }),
+  );
+  autoUpdater.on('download-progress', (p) =>
+    sendStatus({ state: 'downloading', percent: Math.round(p?.percent ?? 0) }),
+  );
+  autoUpdater.on('error', (err) =>
+    sendStatus({ state: 'error', message: String(err?.message ?? err) }),
+  );
+  autoUpdater.on('update-downloaded', async (info) => {
+    downloadedVersion = info?.version ?? null;
+    sendStatus({ state: 'downloaded', version: downloadedVersion });
+    // avviso non invasivo: si può riavviare ora o rimandare (installa comunque alla chiusura)
+    const { response } = await dialog.showMessageBox(mainWindow, {
       type: 'info',
-      title: 'Update available',
-      message: `Albion Crafting ${manifest.version} is available`,
-      detail: `${manifest.notes ? manifest.notes + '\n\n' : ''}You are running version ${app.getVersion()}.`,
-      buttons: ['Download', 'Later'],
+      title: 'Update ready',
+      message: `Albion Crafting ${downloadedVersion} has been downloaded`,
+      detail: 'Restart now to install it, or keep working — it will install automatically when you close the app.',
+      buttons: ['Restart now', 'Later'],
       defaultId: 0,
       cancelId: 1,
     });
-    if (response === 0) {
-      shell.openExternal(
-        manifest.url ?? 'https://github.com/ItzLaVolpe17/albion-craft-app/releases/latest',
-      );
-    }
-  } catch {
-    /* offline o sito non ancora deployato: silenzio */
+    if (response === 0) autoUpdater.quitAndInstall();
+  });
+}
+
+/** Controllo aggiornamenti; in dev o su build non impacchettata non fa nulla. */
+async function checkForUpdates() {
+  if (!app.isPackaged) {
+    sendStatus({ state: 'dev' });
+    return;
   }
+  try {
+    await autoUpdater.checkForUpdates();
+  } catch (err) {
+    sendStatus({ state: 'error', message: String(err?.message ?? err) });
+  }
+}
+
+function registerIpc() {
+  ipcMain.handle('app:version', () => app.getVersion());
+  ipcMain.handle('updates:check', async () => {
+    await checkForUpdates();
+    return app.getVersion();
+  });
+  ipcMain.handle('updates:install', () => {
+    if (downloadedVersion) autoUpdater.quitAndInstall();
+  });
+
+  // ---- data client (sidecar di rete) ----
+  dataClient = new DataClient((payload) => {
+    mainWindow?.webContents.send('dataclient:event', payload);
+  });
+  ipcMain.handle('dataclient:status', () => dataClient.status());
+  ipcMain.handle('dataclient:start', () => dataClient.start());
+  ipcMain.handle('dataclient:stop', () => dataClient.stop());
+  ipcMain.handle('dataclient:history', (_e, kind, limit) => dataClient.getHistory(kind, limit));
+  ipcMain.handle('dataclient:clear', (_e, kind) => dataClient.clearHistory(kind));
+  ipcMain.handle('dataclient:settings', (_e, patch) =>
+    patch ? dataClient.saveSettings(patch) : dataClient.settings,
+  );
 }
 
 function createWindow() {
@@ -77,6 +115,7 @@ function createWindow() {
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
+      preload: path.join(__dirname, 'preload.cjs'),
     },
   });
 
@@ -93,12 +132,19 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
-  const win = createWindow();
-  checkForUpdates(win);
-  setInterval(() => checkForUpdates(win), UPDATE_CHECK_INTERVAL_MS);
+  wireAutoUpdater();
+  registerIpc();
+  mainWindow = createWindow();
+  // controllo a ogni avvio (dopo che la finestra è pronta a ricevere lo stato)
+  mainWindow.webContents.once('did-finish-load', () => checkForUpdates());
+
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    if (BrowserWindow.getAllWindows().length === 0) mainWindow = createWindow();
   });
+});
+
+app.on('before-quit', () => {
+  dataClient?.stop();
 });
 
 app.on('window-all-closed', () => {

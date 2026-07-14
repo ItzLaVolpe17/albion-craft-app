@@ -2,3 +2,10 @@ node_modules/
 dist/
 release/
 .DS_Store
+
+# artefatti di build del sidecar Go (ricompilati da scripts/build-sidecar.mjs)
+sidecar/bin/
+sidecar/albiondata-client.log*
+
+# log runtime del sidecar (root)
+albiondata-client.log*
